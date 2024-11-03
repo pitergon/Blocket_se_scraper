@@ -50,7 +50,7 @@ class BlocketSpider(scrapy.Spider):
             url = f"{url}&sort=PUBLISHED"
             yield response.follow(
                 url,
-                meta={"parent_url": response.url},
+                # meta={"parent_url": response.url},
                 callback=self.parse_category_page,
                 errback=self.handle_error,
                 priority=0
@@ -75,7 +75,8 @@ class BlocketSpider(scrapy.Spider):
                 callback=self.parse_job_page,
                 errback=self.handle_error,
                 meta={"category": category, "page_number": current_page,
-                      "link_number": idx + 1, "parent_url": response.url},
+                      #"parent_url": response.url,
+                      "link_number": idx + 1,},
                 priority=30
             )
 

@@ -33,8 +33,19 @@ class JobUrlDupeFilter(RFPDupeFilter):
         Checking for URLs in the table visited_urls
         """
         fp = request_fingerprint(request)
-        url = request.url
-        self.cursor.execute("SELECT 1 FROM visited_urls WHERE url = ?", (url,))
+        # url = request.url
+        self.cursor.execute("SELECT 1 FROM visited_urls WHERE fingerprint = ?", (fp,))
+        # if crawler.mode == "update":
+        #     processed_date = self.settings.last_update_date
+        #     self.cursor.execute('''
+        #     SELECT 1
+        #     FROM visited_urls
+        #     WHERE fingerprint = ?
+        #     AND processed_date >
+        #     ''',
+        #                         (fp,processed_date,))
+        # else:
+        #     self.cursor.execute("SELECT 1 FROM visited_urls WHERE fingerprint = ?", (fp,))
         # self.cursor.execute("SELECT 1 FROM jobs WHERE url = ?", (url,))
         return bool(self.cursor.fetchone())
 
