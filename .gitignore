@@ -35,3 +35,5 @@ __pycache__/
 .tests/
 
 .tmp/
+
+spider_data/*

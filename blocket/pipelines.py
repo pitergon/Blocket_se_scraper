@@ -2,6 +2,7 @@
 #
 # Don't forget to add your pipeline to the ITEM_PIPELINES setting
 # See: https://docs.scrapy.org/en/latest/topics/item-pipeline.html
+import re
 from sqlite3 import IntegrityError
 
 # useful for handling different item types with a single interface
@@ -35,11 +36,14 @@ class JobPipeline:
         item['category'] = ', '.join([c.strip() for c in item['category']]) if item.get('category') else None
         item['job_type'] = ', '.join([t.strip() for t in item['job_type']]) if item.get('job_type') else None
         item['description'] = '\n'.join([d.strip() for d in item['description']]) if item.get('description') else None
-        item['processed_date'] = datetime.now().strftime("%Y-%m-%d")
+        item['processed_date'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         item['phone'] = item['phone'].strip() if item.get('phone') else None
         item['email'] = item['email'].strip() if item.get('email') else None
-        item['additional_contacts'] = item['additional_contacts'].strip() if item.get('additional_contacts') else None
+        #item['additional_contacts'] = item['additional_contacts'].strip() if item.get('additional_contacts') else None
         # item['company_job_count'] = item['company_job_count'] if item.get('company_job_count') else None # can't get from HTML without js
+
+        if item["description"]:
+           item['additional_contacts'] = self.extract_contacts(item["description"])
 
         return item
 
@@ -48,7 +52,23 @@ class JobPipeline:
         if len(swedish_date.split()) == 2:
             swedish_date = f"{swedish_date} {datetime.now().year}"
         date_obj = parse(swedish_date, languages=['sv'])
+
         return date_obj.strftime("%Y-%m-%d") if date_obj else None
+
+    @staticmethod
+    def extract_contacts(text: str) -> str | None:
+        text = text.lower()
+        email_pattern = r"[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+        emails = re.findall(email_pattern, text)
+        phone_pattern = r"\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}"
+        phones = re.findall(phone_pattern, text)
+        output = []
+        if emails:
+            output.append(f"Email: {', '.join(emails)}")
+        if phones:
+            output.append(f"Phones: {', '.join(phones)}")
+
+        return "\n".join(output) if output else None
 
 
 class DatabasePipeline:

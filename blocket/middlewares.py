@@ -8,7 +8,7 @@ from logging import Logger
 from typing import Optional
 
 from scrapy.http import Response
-from scrapy.utils.request import request_fingerprint
+from scrapy.utils.request import fingerprint
 from twisted.internet import defer
 import scrapy
 from scrapy import signals
@@ -41,7 +41,7 @@ class BlocketSpiderMiddleware:
         # Should return None or raise an exception.
         """Отмечает URL как находящийся в обработке."""
         url = response.url
-        fp = request_fingerprint(response.request)
+        fp = fingerprint(response.request)
         self._mark_url_in_progress(fp, url)  # Отметка о начале обработки
         return None
 
@@ -54,7 +54,7 @@ class BlocketSpiderMiddleware:
         parent_fp = response.meta.get('parent_fp')
         parent_url = response.meta.get('parent_url')
         # Инициализация или увеличение счетчика дочерних запросов
-        yield self.lock.run(self._initialize_or_increment, response.url, result)
+        yield self.lock.run(self._initialize_or_increment, parent_fp, result)
 
         # # Must return an iterable of Request, or item objects.
         for i in result:
@@ -100,7 +100,7 @@ class BlocketSpiderMiddleware:
 
     def _mark_url_processed(self, fp, url):
         """Отмечает URL по отпечатку как обработанный в базе данных."""
-        last_processed_date = datetime.now().strftime("%Y-%m-%d")
+        last_processed_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor = self.connection.cursor()
         try:
             cursor.execute('''

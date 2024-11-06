@@ -1,15 +1,17 @@
 import logging
 import signal
+from datetime import datetime, timedelta
 from typing import Any
 import scrapy
 from urllib.parse import urlparse, parse_qs
-
+import dateparser
 from scrapy import Spider
 from scrapy.spidermiddlewares.httperror import HttpError
 from twisted.internet.defer import Deferred
 from twisted.internet.error import TCPTimedOutError
 
 from blocket.items import JobItem
+from blocket.pipelines import JobPipeline
 
 
 class BlocketSpider(scrapy.Spider):
@@ -21,13 +23,13 @@ class BlocketSpider(scrapy.Spider):
     #start_urls = ["https://jobb.blocket.se/lediga-jobb?filters=bank-finans-och-foersaekring&sort=PUBLISHED"]
     #https://jobb.blocket.se/lediga-jobb?filters=bank-finans-och-foersaekring&sort=PUBLISHED&page=2
 
-    def __init__(self, mode="continue", *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # signal.signal(signal.SIGINT, self.handle_exit)
         # self.company_data_cache = {}
 
         logging.getLogger('scrapy.dupefilters').setLevel(logging.ERROR)
-        self.mode = mode  # continue or update
+        self.mode = "continue"  # continue or update
         self.logger.info("Start spider")
 
     # def start_requests(self):
@@ -46,6 +48,7 @@ class BlocketSpider(scrapy.Spider):
         The function retrieves categories urls from the main page
         """
         category_urls = response.css("li.sc-d56e3ac2-5.sc-2a550f1a-2.brdyEP.jsNiHv a::attr(href)").getall()
+
         for url in category_urls:
             url = f"{url}&sort=PUBLISHED"
             yield response.follow(
@@ -53,7 +56,8 @@ class BlocketSpider(scrapy.Spider):
                 # meta={"parent_url": response.url},
                 callback=self.parse_category_page,
                 errback=self.handle_error,
-                priority=0
+                priority=0,
+                dont_filter=self.mode == "update"
             )
 
     def parse_category_page(self, response, **kwargs: Any) -> Any:
@@ -81,6 +85,7 @@ class BlocketSpider(scrapy.Spider):
             )
 
         max_page_number = self.settings.getint("MAX_CATEGORY_PAGE_NUMBER", 0)
+
         if max_page_number and current_page >= max_page_number:
             self.logger.info(f"Max category page number has been reached: {current_page}")
             return
@@ -90,13 +95,27 @@ class BlocketSpider(scrapy.Spider):
         # page_count = int(page_count) if page_count else None
 
         next_page_url = response.css(
-            "a.sc-c1be1115-0.heGCdS.sc-539f7386-0.gWJszl.sc-9aebc51e-2.jHuKGp:last-of-type::attr(href)").get()
+            "a.sc-c1be1115-0.heGCdS.sc-539f7386-0.gWJszl.sc-9aebc51e-2.jHuKGp::attr(href)").get()
+
+        request_kwargs = {
+            'callback': self.parse_category_page,
+            'errback': self.handle_error,
+            'priority': 20,
+        }
+
+        if self.mode == 'update':
+            days = self.settings.getint("REFRESH_DAYS", 0)
+            target_date = datetime.now() - timedelta(days=days)
+            published_dates = response.css("p.sc-f047e250-1.gRACBc::text").getall()
+            last_date_sw = published_dates[-1] if published_dates else None
+            last_date = dateparser.parse(f"{last_date_sw} {datetime.now().year}", languages=['sv'])
+            if last_date and last_date >= target_date:
+                request_kwargs['dont_filter'] = True # disable dupe filter for this request and parse this page again
 
         if next_page_url is not None:
             # self.logger.info(f"Found new category page {next_page_url}")
             # add next page url to queue
-            yield response.follow(next_page_url, callback=self.parse_category_page, errback=self.handle_error,
-                                  priority=20)
+            yield response.follow(next_page_url, **request_kwargs)
         # else:
         # self.logger.info(f"New category page not found")
         # self.logger.info(f"Finish parsing category page {current_page} / {page_count} ")
@@ -123,35 +142,6 @@ class BlocketSpider(scrapy.Spider):
         # item["company_job_count"] = None # Can't retrieve without js from company page
         yield item
 
-        # company_url = response.css(
-        #     "a.sc-5fe98a8b-2.iapiPt::attr(href)").get()
-        # if company_url is not None:
-        #     full_company_url = response.urljoin(company_url)
-        #     if full_company_url in self.company_data_cache:
-        #         item["company_job_count"] = self.company_data_cache[response.full_company_url]
-        #         yield item
-        #     else:
-        #         yield response.follow(full_company_url, callback=self.parse_company_page, errback=self.handle_error,
-        #                           meta={"item": item},
-        #                           priority=40)
-        # else:
-        #     yield item
-
-    # def parse_company_page(self, response):
-    #     """
-    #     The function retrieves company data, number of jobs
-    #     Function doesn't work. It is possible to get company_job_count only with js
-    #     """
-    #     item = response.meta.get('item')
-    #     span = response.css("span.sc-5c81603-0.loBZsW::text").get() # 81 jobb hittades
-    #     try:
-    #         company_job_count = int(span.split(' ')[0])
-    #     except (IndexError, TypeError) as e:
-    #         pass
-    #     else:
-    #         self.company_data_cache[response.url] = company_job_count
-    #         item["company_job_count"] = company_job_count
-    #     yield item
 
     def handle_error(self, failure):
 

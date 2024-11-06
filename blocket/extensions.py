@@ -3,7 +3,7 @@ from scrapy.crawler import Crawler
 
 class DbExtension:
     def __init__(self, crawler: Crawler):
-        self.connection = sqlite3.connect(crawler.settings.get("SQLITE_FILE"))
+        self.connection = sqlite3.connect(crawler.settings.get("SQLITE_FILE"), check_same_thread=False)
         crawler.db_connection = self.connection
         cursor = self.connection.cursor()
         try:

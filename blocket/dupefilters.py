@@ -3,7 +3,7 @@ import sqlite3
 import logging
 import scrapy
 from scrapy.dupefilters import RFPDupeFilter
-from scrapy.utils.request import request_fingerprint, fingerprint
+from scrapy.utils.request import fingerprint
 
 
 class DuplicateURLFilter(logging.Filter):
@@ -30,22 +30,10 @@ class JobUrlDupeFilter(RFPDupeFilter):
 
     def request_seen(self, request: scrapy.Request):
         """
-        Checking for URLs in the table visited_urls
+        Checking for URLs in the table visited_urls.
+        For some request to category page in update mode this filter will be disabled with dont_filter = true
         """
-        fp = request_fingerprint(request)
-        # url = request.url
+        fp = fingerprint(request)
         self.cursor.execute("SELECT 1 FROM visited_urls WHERE fingerprint = ?", (fp,))
-        # if crawler.mode == "update":
-        #     processed_date = self.settings.last_update_date
-        #     self.cursor.execute('''
-        #     SELECT 1
-        #     FROM visited_urls
-        #     WHERE fingerprint = ?
-        #     AND processed_date >
-        #     ''',
-        #                         (fp,processed_date,))
-        # else:
-        #     self.cursor.execute("SELECT 1 FROM visited_urls WHERE fingerprint = ?", (fp,))
-        # self.cursor.execute("SELECT 1 FROM jobs WHERE url = ?", (url,))
         return bool(self.cursor.fetchone())
 
