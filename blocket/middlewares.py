@@ -39,7 +39,7 @@ class BlocketSpiderMiddleware:
         # middleware and into the spider.
 
         # Should return None or raise an exception.
-        """Отмечает URL как находящийся в обработке."""
+        """Marks the request as "in progress" when entering the spider"""
         url = response.url
         fp = fingerprint(response.request)
         self._mark_url_in_progress(fp, url)  # Отметка о начале обработки
@@ -49,11 +49,14 @@ class BlocketSpiderMiddleware:
         # Called with the results returned from the Spider, after
         # it has processed the response.
 
-        # Получаем URL родительского запроса
-        # Мета parent_url и fingerprint для всех запросов нужно менять здесь
+
+        # Getting parent URL and finger print
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # !!!!!Meta parent_url и fingerprint for all request need to be changed here
+        # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         parent_fp = response.meta.get('parent_fp')
         parent_url = response.meta.get('parent_url')
-        # Инициализация или увеличение счетчика дочерних запросов
+        # Init counter for child requests
         yield self.lock.run(self._initialize_or_increment, parent_fp, result)
 
         # # Must return an iterable of Request, or item objects.
@@ -65,25 +68,23 @@ class BlocketSpiderMiddleware:
             yield self.lock.run(self._decrement_count,parent_fp, parent_url)
 
     def _initialize_or_increment(self, parent_fp, result):
-        """Инициализация или увеличение счетчика дочерних запросов для parent_url."""
+        """Initialize or increment the child request counter for parent_url."""
         if parent_fp not in self.children_request_counts:
-            # Инициализация счетчика на основе количества запросов в результате
             self.children_request_counts[parent_fp] = sum(1 for item in result if isinstance(item, scrapy.Request))
-            print(f"Инициализирован счетчик для fp {parent_fp}: {self.children_request_counts[parent_fp]}")
+            print(f"Initialized counter for fp {parent_fp}: {self.children_request_counts[parent_fp]}")
         else:
             self.children_request_counts[parent_fp] += sum(1 for item in result if isinstance(item, scrapy.Request))
 
     def _decrement_count(self, parent_fp, parent_url):
-        """Уменьшает счетчик дочерних запросов для указанного parent_url."""
+        """Decrement the child request counter for specified parent_url"""
         if parent_fp in self.children_request_counts:
             self.children_request_counts[parent_fp] -= 1
             if self.children_request_counts[parent_fp] == 0:
-                # Помечаем URL как обработанный и удаляем из словаря
                 self._mark_url_processed(parent_fp, parent_url)
                 del self.children_request_counts[parent_fp]
 
     def _mark_url_in_progress(self, fp, url):
-        """Записывает статус URL по отпечатку fp "в процессе" в базе данных."""
+        """Marks the request with fingerprint as "in progress" in DB"""
         cursor = self.connection.cursor()
         try:
             cursor.execute('''
@@ -99,7 +100,7 @@ class BlocketSpiderMiddleware:
             cursor.close()
 
     def _mark_url_processed(self, fp, url):
-        """Отмечает URL по отпечатку как обработанный в базе данных."""
+        """Marks the request with fingerprint as "progressed" in DB"""
         last_processed_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor = self.connection.cursor()
         try:
