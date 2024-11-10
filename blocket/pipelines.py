@@ -82,28 +82,6 @@ class DatabasePipeline:
     def from_crawler(cls, crawler):
         return cls(crawler)
 
-    # def open_spider(self, spider):
-
-    # self.cursor.execute('''
-    #     CREATE TABLE IF NOT EXISTS jobs (
-    #         id INTEGER PRIMARY KEY,
-    #         url TEXT UNIQUE,
-    #         title TEXT,
-    #         company TEXT,
-    #         published_date TEXT,
-    #         apply_date TEXT,
-    #         location TEXT,
-    #         category TEXT,
-    #         job_type TEXT,
-    #         description TEXT,
-    #         processed_date TEXT,
-    #         phone TEXT,
-    #         email TEXT,
-    #         additional_contacts TEXT,
-    #         company_job_count INTEGER
-    #     )
-    # ''')
-    # self.connection.commit()
 
     def process_item(self, item, spider):
         try:
@@ -141,6 +119,7 @@ class DatabasePipeline:
 
 
 class ExcelSavePipeline:
+    """Save the bunch of items to Excel file"""
     def __init__(self):
         self.items = []
         self.batch_size = 50
@@ -191,7 +170,9 @@ class ExcelSavePipeline:
 
 
 class ExcelFinalExportPipeline:
-
+    """
+    Save the all data
+    """
     @staticmethod
     def close_spider(spider):
         connection = spider.crawler.db_connection

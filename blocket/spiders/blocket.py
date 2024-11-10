@@ -7,53 +7,48 @@ from urllib.parse import urlparse, parse_qs
 import dateparser
 from scrapy import Spider
 from scrapy.spidermiddlewares.httperror import HttpError
-from twisted.internet.defer import Deferred
 from twisted.internet.error import TCPTimedOutError
 
 from blocket.items import JobItem
-from blocket.pipelines import JobPipeline
 
 
 class BlocketSpider(scrapy.Spider):
     name = 'blocket'
-    start_urls = ["https://jobb.blocket.se/"]
 
-    #start_urls = ["https://jobb.blocket.se/lediga-jobb?filters=juridik&sort=PUBLISHED"]
-    #start_urls = ["https://jobb.blocket.se/lediga-jobb?filters=offentlig-foervaltning&sort=PUBLISHED"]
-    #start_urls = ["https://jobb.blocket.se/lediga-jobb?filters=bank-finans-och-foersaekring&sort=PUBLISHED"]
-    #https://jobb.blocket.se/lediga-jobb?filters=bank-finans-och-foersaekring&sort=PUBLISHED&page=2
+    #start_urls = ["https://jobb.blocket.se/"]
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, mode="continue", *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # signal.signal(signal.SIGINT, self.handle_exit)
-        # self.company_data_cache = {}
-
-        logging.getLogger('scrapy.dupefilters').setLevel(logging.ERROR)
-        self.mode = "continue"  # continue or update
+        self.mode = mode  # continue or update
         self.logger.info("Start spider")
 
-    # def start_requests(self):
-    #     if self.mode == "continue":
-    #         self.logger.info("Running in 'continue' mode.")
-    #         # check db for unprocessed url end start from it
-    #     elif self.mode == "update":
-    #         self.logger.info("Running in 'update' mode.")
-    #         # check main page and category pages for update.
-    #         # Check max_category_page_numer pages or published_date of jobs
-    #     else:
-    #         self.logger.info("Running in default mode.")
+    def start_requests(self):
 
-    def parse(self, response, **kwargs: Any) -> Any:
+        # if self.mode == "continue":
+        #     self.logger.info("Running in 'continue' mode.")
+        #     # check db for unprocessed url end start from it
+        # elif self.mode == "update":
+        #     self.logger.info("Running in 'update' mode.")
+        #     # check main page and category pages for update.
+        #     # Check max_category_page_numer pages or published_date of jobs
+        # else:
+        #     self.logger.info("Running in default mode.")
+
+        main_page_url = 'https://jobb.blocket.se/'
+        for url in self.start_urls:
+            # Create and return every request
+            yield scrapy.Request(url=main_page_url, callback=self.parse_main_page)
+
+    def parse_main_page(self, response, **kwargs: Any) -> Any:
         """
         The function retrieves categories urls from the main page
         """
-        category_urls = response.css("li.sc-d56e3ac2-5.sc-2a550f1a-2.brdyEP.jsNiHv a::attr(href)").getall()
 
+        category_urls = response.css("li.sc-d56e3ac2-5.sc-2a550f1a-2.brdyEP.jsNiHv a::attr(href)").getall()
         for url in category_urls:
             url = f"{url}&sort=PUBLISHED"
             yield response.follow(
                 url,
-                # meta={"parent_url": response.url},
                 callback=self.parse_category_page,
                 errback=self.handle_error,
                 priority=0,
@@ -78,9 +73,10 @@ class BlocketSpider(scrapy.Spider):
                 job_url,
                 callback=self.parse_job_page,
                 errback=self.handle_error,
-                meta={"category": category, "page_number": current_page,
+                meta={"category": category,
+                      "page_number": current_page,
                       #"parent_url": response.url,
-                      "link_number": idx + 1,},
+                      "link_number": idx + 1, },
                 priority=30
             )
 
@@ -110,12 +106,14 @@ class BlocketSpider(scrapy.Spider):
             last_date_sw = published_dates[-1] if published_dates else None
             last_date = dateparser.parse(f"{last_date_sw} {datetime.now().year}", languages=['sv'])
             if last_date and last_date >= target_date:
-                request_kwargs['dont_filter'] = True # disable dupe filter for this request and parse this page again
+                request_kwargs['dont_filter'] = True  # disable dupe filter for this request and parse this page again
 
-        if next_page_url is not None:
-            # self.logger.info(f"Found new category page {next_page_url}")
-            # add next page url to queue
-            yield response.follow(next_page_url, **request_kwargs)
+        # if next_page_url is not None:
+        # self.logger.info(f"Found new category page {next_page_url}")
+        # add next page url to queue
+
+        # yield response.follow(next_page_url, **request_kwargs)
+
         # else:
         # self.logger.info(f"New category page not found")
         # self.logger.info(f"Finish parsing category page {current_page} / {page_count} ")
@@ -142,7 +140,6 @@ class BlocketSpider(scrapy.Spider):
         # item["company_job_count"] = None # Can't retrieve without js from company page
         yield item
 
-
     def handle_error(self, failure):
 
         if failure.check(TimeoutError, TCPTimedOutError):
@@ -158,5 +155,12 @@ class BlocketSpider(scrapy.Spider):
         else:
             self.logger.warning("Unknown error occurred")
 
-    # def handle_exit(self, signum, frame):
-    #     self.crawler.engine.close_spider(self, reason="Interrupted by user")
+    def close_spider(self, reason):
+        if reason == 'finished':
+            self.logger.info("Spider completed: all pages processed successfully.")
+        elif reason == 'shutdown':
+            self.logger.info("Spider interrupted by shutdown signal.")
+        elif reason == 'cancelled':
+            self.logger.info("Spider canceled by user.")
+        else:
+            self.logger.info(f"Spider stopped: reason - {reason}")

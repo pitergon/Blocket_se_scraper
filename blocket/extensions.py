@@ -26,8 +26,9 @@ class DbExtension:
                     company_job_count INTEGER
                 );
                 CREATE TABLE IF NOT EXISTS visited_urls (
-                    fingerprint TEXT PRIMARY KEY,
-                    url TEXT UNIQUE,
+                    fingerprint BLOB PRIMARY KEY,
+                    url TEXT,
+                    parent_url TEXT,
                     status TEXT,
                     last_processed_date TEXT                   
                 );
