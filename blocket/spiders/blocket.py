@@ -1,3 +1,4 @@
+import json
 import logging
 import signal
 from datetime import datetime, timedelta
@@ -15,29 +16,25 @@ from blocket.items import JobItem
 class BlocketSpider(scrapy.Spider):
     name = 'blocket'
 
-    #start_urls = ["https://jobb.blocket.se/"]
-
     def __init__(self, mode="continue", *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.mode = mode  # continue or update
+        valid_modes = ['continue', 'update']
+        if mode not in valid_modes:
+            self.logger.error(f"Invalid mode '{mode}' received. Valid options are 'continue' or 'update'.")
+            raise ValueError(f"Invalid mode '{mode}'. Valid options are 'continue' or 'update'.")
+        self.mode = mode
         self.logger.info("Start spider")
 
     def start_requests(self):
-
-        # if self.mode == "continue":
-        #     self.logger.info("Running in 'continue' mode.")
-        #     # check db for unprocessed url end start from it
-        # elif self.mode == "update":
-        #     self.logger.info("Running in 'update' mode.")
-        #     # check main page and category pages for update.
-        #     # Check max_category_page_numer pages or published_date of jobs
-        # else:
-        #     self.logger.info("Running in default mode.")
-
         main_page_url = 'https://jobb.blocket.se/'
-        for url in self.start_urls:
-            # Create and return every request
-            yield scrapy.Request(url=main_page_url, callback=self.parse_main_page)
+
+        if self.mode == 'update':
+            self.logger.info("Starting in 'update' mode.")
+        elif self.mode == 'continue':
+            self.logger.info("Starting in 'continue' mode.")
+
+        yield scrapy.Request(url=main_page_url, callback=self.parse_main_page)
+
 
     def parse_main_page(self, response, **kwargs: Any) -> Any:
         """
@@ -126,19 +123,52 @@ class BlocketSpider(scrapy.Spider):
         # self.logger.info(f"Parsing job {meta.get('link_number')} from {meta.get('category')} page {meta.get('page_number')} {response.url}")
 
         item = JobItem()
+        json_str = response.css('#__NEXT_DATA__::text').get()
+        try:
+            json_data = json.loads(json_str)
+            if json_data:
+                job_data = {}
+                # tmp_dict = json_data["props"]["pageProps"]["initialApolloState"]
+                # query_dict = json_data["props"]["pageProps"]["initialApolloState"]["ROOT_QUERY"]
+                for k, v in json_data["props"]["pageProps"]["initialApolloState"]["ROOT_QUERY"].items():
+                    if isinstance(v, dict) and (ref := v.get("__ref")):
+                        job_data = json_data["props"]["pageProps"]["initialApolloState"][ref]
+                        break
+                if job_data:
+                    item['url'] = response.url
+                    item['title'] = job_data.get("subject")
+                    item['company'] = job_data.get("corpName")
+                    item['published_date'] = job_data.get("publishedDate")
+                    item['apply_date'] = job_data.get("applyDate")
+                    item['location'] = job_data.get("areaName")
+                    item['category'] = job_data.get("categoryName")
+                    item['job_type'] = job_data.get("employmentName")
+                    item['phone'] = job_data.get("phone")
+                    item['email'] = job_data.get("email")
+                    if self.settings.get('SAVE_JOB_DESCRIPTION'):
+                        # item['description'] = job_data.get("bodyHtml") # get with HTML tags from JSON
+                        item['description'] = response.css("div.sc-d56e3ac2-5.sc-5fe98a8b-10.brdyEP *::text").getall()
 
-        item['url'] = response.url
-        item['title'] = response.css("h1::text").get()
-        item['company'] = response.css("a.sc-5fe98a8b-2.iapiPt::text").get()
-        item['published_date'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(4) span::text").get()
-        item['apply_date'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(2) span::text").get()
-        item['location'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(6) a::text").get()
-        item['category'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(8) a::text").getall()
-        item['job_type'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(10) a::text").getall()
-        if self.settings.get('SAVE_JOB_DESCRIPTION'):
-            item['description'] = response.css("div.sc-d56e3ac2-5.sc-5fe98a8b-10.brdyEP *::text").getall()
-        # item["company_job_count"] = None # Can't retrieve without js from company page
-        yield item
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Error during loading JSON: {e}, url: {response.url}")
+        except KeyError as e:
+            self.logger.error(f"Error during parsing JSON with job data: {e}, url: {response.url}")
+        if item:
+            yield item
+        # else:
+        # Getting data from HTML
+        # item['url'] = response.url
+        # item['title'] = response.css("h1::text").get()
+        # item['company'] = response.css("a.sc-5fe98a8b-2.iapiPt::text").get()
+        # item['published_date'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(4) span::text").get()
+        # item['apply_date'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(2) span::text").get()
+        # item['location'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(6) a::text").get()
+        # item['category'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(8) a::text").getall()
+        # item['job_type'] = response.css("div.sc-dd9f06d6-2.dVNNPW:nth-of-type(10) a::text").getall()
+        # if self.settings.get('SAVE_JOB_DESCRIPTION'):
+        #     item['description'] = response.css("div.sc-d56e3ac2-5.sc-5fe98a8b-10.brdyEP *::text").getall()
+        # if item:
+        #     yield item
 
     def handle_error(self, failure):
 

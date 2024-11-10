@@ -22,4 +22,7 @@ class JobItem(scrapy.Item):
     phone = scrapy.Field()
     email = scrapy.Field()
     additional_contacts = scrapy.Field()
-    company_job_count = scrapy.Field() # can't get from HTML without js
+
+
+    def __bool__(self):
+        return bool(self.get('url') and self.get('title'))

@@ -34,38 +34,47 @@ class JobPipeline:
         item['apply_date'] = self.convert_date(item['apply_date']) if item.get('apply_date') else None
         item['location'] = item['location'].strip() if item.get('location') else None
         item['category'] = ', '.join([c.strip() for c in item['category']]) if item.get('category') else None
-        item['job_type'] = ', '.join([t.strip() for t in item['job_type']]) if item.get('job_type') else None
+        # if job_type from HTML
+        # item['job_type'] = ', '.join([t.strip() for t in item['job_type']]) if item.get('job_type') else None
+        # if job_type from JSON
+        item['job_type'] = item['job_type'].strip() if item.get('job_type') else None
+        # if description from JSON with HTML tags
+        # item['description'] = item['description'].strip() if item.get('description') else None
+        # if description from HTML and not from JSON
         item['description'] = '\n'.join([d.strip() for d in item['description']]) if item.get('description') else None
         item['processed_date'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        item['phone'] = item['phone'].strip() if item.get('phone') else None
+        item['phone'] = item['phone'].strip().replace(" ", "-") if item.get('phone') else None
         item['email'] = item['email'].strip() if item.get('email') else None
-        #item['additional_contacts'] = item['additional_contacts'].strip() if item.get('additional_contacts') else None
-        # item['company_job_count'] = item['company_job_count'] if item.get('company_job_count') else None # can't get from HTML without js
 
         if item["description"]:
-           item['additional_contacts'] = self.extract_contacts(item["description"])
+            item['additional_contacts'] = self.extract_contacts(item["description"])
 
         return item
 
     @staticmethod
     def convert_date(swedish_date: str) -> str | None:
-        if len(swedish_date.split()) == 2:
-            swedish_date = f"{swedish_date} {datetime.now().year}"
-        date_obj = parse(swedish_date, languages=['sv'])
-
-        return date_obj.strftime("%Y-%m-%d") if date_obj else None
+        try:
+            if len(swedish_date.split()) == 2 and ":" not in swedish_date:
+                swedish_date = f"{swedish_date} {datetime.now().year}"
+            date_obj = parse(swedish_date, languages=['sv'])
+            return date_obj.strftime("%Y-%m-%d")
+        except (ValueError, AttributeError):
+            return None
 
     @staticmethod
     def extract_contacts(text: str) -> str | None:
         text = text.lower()
         email_pattern = r"[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
         emails = re.findall(email_pattern, text)
-        phone_pattern = r"\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}"
+        #phone_pattern = r"\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}"
+        phone_pattern = r"\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?(?:\d[-.\s]?){7,13}\d"
+
         phones = re.findall(phone_pattern, text)
         output = []
         if emails:
             output.append(f"Email: {', '.join(emails)}")
         if phones:
+
             output.append(f"Phones: {', '.join(phones)}")
 
         return "\n".join(output) if output else None
@@ -82,21 +91,20 @@ class DatabasePipeline:
     def from_crawler(cls, crawler):
         return cls(crawler)
 
-
     def process_item(self, item, spider):
         try:
             self.cursor.execute(
                 '''
                 INSERT INTO jobs (
                 url, title, company, published_date, apply_date, location, category, job_type, description, 
-                processed_date, phone, email, additional_contacts, company_job_count
+                processed_date, phone, email, additional_contacts
                 ) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     item.get('url'), item.get('title'), item.get('company'),
                     item.get('published_date'), item.get('apply_date'), item.get('location'),
                     item.get('category'), item.get('job_type'), item.get('description'), item.get('processed_date'),
-                    item.get('phone'), item.get('email'), item.get('additional_contacts'), item.get('company_job_count')
+                    item.get('phone'), item.get('email'), item.get('additional_contacts')
                 )
             )
             self.connection.commit()
@@ -113,13 +121,13 @@ class DatabasePipeline:
                 print("~" * 50)
         return item
 
-
     def close_spider(self, spider):
         self.cursor.close()
 
 
 class ExcelSavePipeline:
     """Save the bunch of items to Excel file"""
+
     def __init__(self):
         self.items = []
         self.batch_size = 50
@@ -173,6 +181,7 @@ class ExcelFinalExportPipeline:
     """
     Save the all data
     """
+
     @staticmethod
     def close_spider(spider):
         connection = spider.crawler.db_connection

@@ -6,7 +6,7 @@ JOBDIR = "spider_data"
 
 
 JOB_PAGE_PARSING_ENABLED = True
-SAVE_JOB_DESCRIPTION = False
+SAVE_JOB_DESCRIPTION = True
 MAX_CATEGORY_PAGE_NUMBER = 0
 REFRESH_DAYS = 4
 
@@ -53,7 +53,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'handlers': {
         'console': {
-            'level': 'INFO',
+            'level': 'WARNING',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },

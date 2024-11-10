@@ -22,8 +22,7 @@ class DbExtension:
                     processed_date TEXT, 
                     phone TEXT, 
                     email TEXT, 
-                    additional_contacts TEXT, 
-                    company_job_count INTEGER
+                    additional_contacts TEXT
                 );
                 CREATE TABLE IF NOT EXISTS visited_urls (
                     fingerprint BLOB PRIMARY KEY,
