@@ -6,7 +6,8 @@ from typing import Any
 import scrapy
 from urllib.parse import urlparse, parse_qs
 import dateparser
-from scrapy import Spider
+from scrapy import Spider, signals
+from scrapy.crawler import Crawler
 from scrapy.spidermiddlewares.httperror import HttpError
 from twisted.internet.error import TCPTimedOutError
 
@@ -16,8 +17,11 @@ from blocket.items import JobItem
 class BlocketSpider(scrapy.Spider):
     name = 'blocket'
 
-    def __init__(self, mode="continue", *args, **kwargs):
+    def __init__(self,crawler: Crawler, mode="update", *args, **kwargs):
         super().__init__(*args, **kwargs)
+        super()._set_crawler(crawler)
+        bot_name = self.settings.get('BOT_NAME', 'scrapy_project')
+        self._logger = logging.getLogger(bot_name)
         valid_modes = ['continue', 'update']
         if mode not in valid_modes:
             self.logger.error(f"Invalid mode '{mode}' received. Valid options are 'continue' or 'update'.")
@@ -25,22 +29,33 @@ class BlocketSpider(scrapy.Spider):
         self.mode = mode
         self.logger.info("Start spider")
 
+    @property
+    def logger(self):
+        return self._logger
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        spider = cls(crawler, *args, **kwargs)
+        return spider
+
     def start_requests(self):
         main_page_url = 'https://jobb.blocket.se/'
+
+        # Add logic to extract "in process" pages for
 
         if self.mode == 'update':
             self.logger.info("Starting in 'update' mode.")
         elif self.mode == 'continue':
             self.logger.info("Starting in 'continue' mode.")
 
-        yield scrapy.Request(url=main_page_url, callback=self.parse_main_page)
+        yield scrapy.Request(url=main_page_url, callback=self.parse_main_page, dont_filter=True)
 
 
     def parse_main_page(self, response, **kwargs: Any) -> Any:
         """
         The function retrieves categories urls from the main page
         """
-
+        self.logger.info("PARSE MAIN PAGE")
         category_urls = response.css("li.sc-d56e3ac2-5.sc-2a550f1a-2.brdyEP.jsNiHv a::attr(href)").getall()
         for url in category_urls:
             url = f"{url}&sort=PUBLISHED"
@@ -49,20 +64,52 @@ class BlocketSpider(scrapy.Spider):
                 callback=self.parse_category_page,
                 errback=self.handle_error,
                 priority=0,
-                dont_filter=self.mode == "update"
+                dont_filter=True  # The first page of every category is not checked by the duplicate filter
             )
 
     def parse_category_page(self, response, **kwargs: Any) -> Any:
         """
         The function retrieves the job data if necessary, job link and link to the next category page from the category page
-        """
+
+        # Нужно добавить какой то фильтр по времени что б не обрабатывать то что было обработано меньше часа назад
+        # чтобы в случае сбой не получить постоянный цикл
+        True
+        2024-11-16 01:20:43 [blocket] INFO: Category data-och-it page 2 / 104 processed
+        2024-11-16 01:20:43 [blocket] INFO: Found new category page /lediga-jobb?filters=data-och-it&sort=PUBLISHED
+        2024-11-16 01:20:44 [blocket] INFO: Start parsing category data-och-it page 1 https://jobb.blocket.se/lediga-jobb?filters=data-och-it&sort=PUBLISHED
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        /lediga-jobb?filters=data-och-it&sort=PUBLISHED&page=2
+        days - 14, last_date - 2024-11-04 00:00:00, target_date - 2024-11-02 01:20:44.101900
+        True
+        2024-11-16 01:20:44 [blocket] INFO: Category data-och-it page 1 / 104 processed
+        2024-11-16 01:20:44 [blocket] INFO: Found new category page /lediga-jobb?filters=data-och-it&sort=PUBLISHED&page=2
+        2024-11-16 01:20:44 [blocket] INFO: Start parsing category data-och-it page 2 https://jobb.blocket.se/lediga-jobb?filters=data-och-it&sort=PUBLISHED&page=2
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        /lediga-jobb?filters=data-och-it&sort=PUBLISHED
+        days - 14, last_date - 2024-11-04 00:00:00, target_date - 2024-11-02 01:20:44.686738
+        True
+        2024-11-16 01:20:44 [blocket] INFO: Category data-och-it page 2 / 104 processed
+        2024-11-16 01:20:44 [blocket] INFO: Found new category page /lediga-jobb?filters=data-och-it&sort=PUBLISHED
+        2024-11-16 01:20:45 [blocket] INFO: Start parsing category data-och-it page 1 https://jobb.blocket.se/lediga-jobb?filters=data-och-it&sort=PUBLISHED
+        !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        /lediga-jobb?filters=data-och-it&sort=PUBLISHED&page=2
+        days - 14, last_date - 2024-11-04 00:00:00, target_date - 2024-11-02 01:20:45.284437
+        True
+        2024-11-16 01:20:45 [blocket] INFO: Category data-och-it page 1 / 104 processed
+        2024-11-16 01:20:45 [blocket] INFO: Found new category page /lediga-jobb?filters=data-och-it&sort=PUBLISHED&page=2
+        2024-11-16 01:20:45 [blocket] INFO: Start parsing category data-och-it page 2 https://jobb.blocket.se/lediga-jobb?filters=data-och-it&sort=PUBLISHED&page=2
+
+"""
+
+
+
         # Current page number
         parsed_url = urlparse(response.url)
         query_params = parse_qs(parsed_url.query)
         current_page = int(query_params.get("page", ['1'])[0])
         category = query_params.get("filters", ["-"])[0]
 
-        # self.logger.info(f"Start parsing category {category} page {current_page} {response.url}")
+        self.logger.info(f"Start parsing category {category} page {current_page} {response.url}")
 
         job_urls = response.css("div.sc-b071b343-0.eujsyo a")
         for idx, job_url in enumerate(job_urls):
@@ -72,20 +119,21 @@ class BlocketSpider(scrapy.Spider):
                 errback=self.handle_error,
                 meta={"category": category,
                       "page_number": current_page,
-                      #"parent_url": response.url,
                       "link_number": idx + 1, },
                 priority=30
             )
 
-        max_page_number = self.settings.getint("MAX_CATEGORY_PAGE_NUMBER", 0)
+        max_page_number = self.settings.getint("MAX_CATEGORY_PAGE_NUMBER")
 
         if max_page_number and current_page >= max_page_number:
+            print("!" * 100)
+            print("max_page_number MODE")
             self.logger.info(f"Max category page number has been reached: {current_page}")
             return
 
         # Find pages count:
-        # page_count = response.css('div.sc-9aebc51e-3.eMQydw a:last-of-type::text').get()
-        # page_count = int(page_count) if page_count else None
+        page_count = response.css('div.sc-9aebc51e-3.eMQydw a:last-of-type::text').get()
+        page_count = int(page_count) if page_count else None
 
         next_page_url = response.css(
             "a.sc-c1be1115-0.heGCdS.sc-539f7386-0.gWJszl.sc-9aebc51e-2.jHuKGp::attr(href)").get()
@@ -96,6 +144,9 @@ class BlocketSpider(scrapy.Spider):
             'priority': 20,
         }
 
+        # In update mode, the publication date of the last work on the page is checked and
+        # while this date is greater than now() - refresh_days,
+        # the next category page is not checked by the duplicate filter
         if self.mode == 'update':
             days = self.settings.getint("REFRESH_DAYS", 0)
             target_date = datetime.now() - timedelta(days=days)
@@ -103,24 +154,28 @@ class BlocketSpider(scrapy.Spider):
             last_date_sw = published_dates[-1] if published_dates else None
             last_date = dateparser.parse(f"{last_date_sw} {datetime.now().year}", languages=['sv'])
             if last_date and last_date >= target_date:
-                request_kwargs['dont_filter'] = True  # disable dupe filter for this request and parse this page again
+                print("!" * 100)
+                print(next_page_url)
+                print(f"days - {days}, last_date - {last_date}, target_date - {target_date}")
+                print(last_date and last_date >= target_date)
+                request_kwargs['dont_filter'] = True  # disable dupe filter for this request and parse next page again
 
-        # if next_page_url is not None:
-        # self.logger.info(f"Found new category page {next_page_url}")
-        # add next page url to queue
+        self.logger.info(f"Category {category} page {current_page} / {page_count} processed")
 
-        # yield response.follow(next_page_url, **request_kwargs)
+        if next_page_url is not None:
+            self.logger.info(f"Found new category page {next_page_url}")
+            #add next page url to queue
+            yield response.follow(next_page_url, **request_kwargs)
+        else:
+            self.logger.info(f"Next category page not found. Category {category} processed")
 
-        # else:
-        # self.logger.info(f"New category page not found")
-        # self.logger.info(f"Finish parsing category page {current_page} / {page_count} ")
 
     def parse_job_page(self, response) -> Any:
         """
         The function retrieves job data from the job page
         """
-        # meta = response.meta
-        # self.logger.info(f"Parsing job {meta.get('link_number')} from {meta.get('category')} page {meta.get('page_number')} {response.url}")
+        meta = response.meta
+        self.logger.info(f"Parsing job {meta.get('link_number')} from {meta.get('category')} page {meta.get('page_number')} {response.url}")
 
         item = JobItem()
         json_str = response.css('#__NEXT_DATA__::text').get()
@@ -128,8 +183,6 @@ class BlocketSpider(scrapy.Spider):
             json_data = json.loads(json_str)
             if json_data:
                 job_data = {}
-                # tmp_dict = json_data["props"]["pageProps"]["initialApolloState"]
-                # query_dict = json_data["props"]["pageProps"]["initialApolloState"]["ROOT_QUERY"]
                 for k, v in json_data["props"]["pageProps"]["initialApolloState"]["ROOT_QUERY"].items():
                     if isinstance(v, dict) and (ref := v.get("__ref")):
                         job_data = json_data["props"]["pageProps"]["initialApolloState"][ref]
@@ -156,7 +209,7 @@ class BlocketSpider(scrapy.Spider):
         if item:
             yield item
         # else:
-        # Getting data from HTML
+        # Getting job data from HTML. Some fields can be mixed up in this case
         # item['url'] = response.url
         # item['title'] = response.css("h1::text").get()
         # item['company'] = response.css("a.sc-5fe98a8b-2.iapiPt::text").get()
@@ -186,11 +239,13 @@ class BlocketSpider(scrapy.Spider):
             self.logger.warning("Unknown error occurred")
 
     def close_spider(self, reason):
-        if reason == 'finished':
-            self.logger.info("Spider completed: all pages processed successfully.")
-        elif reason == 'shutdown':
-            self.logger.info("Spider interrupted by shutdown signal.")
-        elif reason == 'cancelled':
-            self.logger.info("Spider canceled by user.")
-        else:
-            self.logger.info(f"Spider stopped: reason - {reason}")
+        stats = self.crawler.stats
+        processed_pages = stats.get_value('response_received_count', 0)
+        items_scraped = stats.get_value('item_scraped_count', 0)
+
+        self.logger.info(f"Spider closed: {reason}")
+        self.logger.info(f"Processed pages: {processed_pages}")
+        self.logger.info(f"Scraped items: {items_scraped}")
+
+
+

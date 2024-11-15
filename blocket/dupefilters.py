@@ -6,19 +6,11 @@ from scrapy.dupefilters import RFPDupeFilter
 from scrapy.utils.request import fingerprint
 
 
-class DuplicateURLFilter(logging.Filter):
-    """Hides standard scrape messages about duplicate URLs without changing the log level"""
-    def filter(self, record):
-        return not re.search(r'Dropped: Duplicate URL found', record.getMessage())
-
-
 class JobUrlDupeFilter(RFPDupeFilter):
     def __init__(self, path=None, debug=False, *, fingerprinter=None, db_connection=None):
         super().__init__(path=path, debug=debug, fingerprinter=fingerprinter)
         self.connection = db_connection
         self.cursor = self.connection.cursor()
-        # Hides standard scrape messages about duplicate URLs without changing the log level
-        logging.getLogger('scrapy.core.scraper').addFilter(DuplicateURLFilter())
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -31,9 +23,12 @@ class JobUrlDupeFilter(RFPDupeFilter):
     def request_seen(self, request: scrapy.Request):
         """
         Checking for URLs in the table visited_urls.
-        For some request to category page in update mode this filter will be disabled with dont_filter = true
+        For  request to main page and some category pages in update mode
+        this filter will be disabled with dont_filter = true
         """
         fp = fingerprint(request)
         self.cursor.execute("SELECT 1 FROM visited_urls WHERE fingerprint = ?", (fp,))
         return bool(self.cursor.fetchone())
 
+    def close_spider(self, spider):
+        self.cursor.close()

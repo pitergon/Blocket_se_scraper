@@ -1,17 +1,21 @@
 # custom_settings.py
-from scrapy.settings.default_settings import LOG_LEVEL
 
 SQLITE_FILE = "scrapy_data.db"
 JOBDIR = "spider_data"
-
+EXCEL_FILE_INCREMENTAL = "job_data.xlsx"
+EXCEL_FILE_FROM_DB = "job_data_from_db.xlsx"
 
 JOB_PAGE_PARSING_ENABLED = True
 SAVE_JOB_DESCRIPTION = True
-MAX_CATEGORY_PAGE_NUMBER = 0
-REFRESH_DAYS = 4
+MAX_CATEGORY_PAGE_NUMBER = 3
+REFRESH_DAYS = 14
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
+EXTENSIONS = {
+    'blocket.extensions.LoggingExtension': 400,
+    'blocket.extensions.DbExtension': 500,
+}
 ITEM_PIPELINES = {
    "blocket.pipelines.JobPipeline": 300,
    "blocket.pipelines.DatabasePipeline": 400,
@@ -19,9 +23,6 @@ ITEM_PIPELINES = {
    "blocket.pipelines.ExcelFinalExportPipeline": 600,
 }
 
-EXTENSIONS = {
-    'blocket.extensions.DbExtension': 500,
-}
 
 SPIDER_MIDDLEWARES = {
     'blocket.middlewares.BlocketSpiderMiddleware': 543,
@@ -46,28 +47,6 @@ REACTOR_THREADPOOL_MAXSIZE = 20
 
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 DOWNLOAD_FAIL_ON_DATALOSS = False
-# LOG_LEVEL = 'WARNING'
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'level': 'WARNING',
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
-        },
-    },
-    'loggers': {
-        'scrapy': {
-            'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'blocket': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-    },
-}
+LOG_LEVEL = 'WARNING'
+CUSTOM_LOG_LEVEL = "INFO"
+#DUPEFILTER_DEBUG = True

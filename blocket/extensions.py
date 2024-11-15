@@ -1,8 +1,43 @@
+import logging
+import logging.config
 import sqlite3
 from scrapy.crawler import Crawler
+from scrapy.exceptions import NotConfigured
+
+
+class LoggingExtension:
+    def __init__(self, crawler):
+
+        self.settings = crawler.settings
+        self.bot_name = self.settings.get('BOT_NAME', "blocket")
+        self.log_level = self.settings.get('CUSTOM_LOG_LEVEL', 'INFO').upper()
+        self.logger = self.create_logger()
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        if not crawler.settings.getbool('LOG_ENABLED', True):
+            raise NotConfigured
+        return cls(crawler)
+
+    def create_logger(self):
+        logger = logging.getLogger(self.bot_name)
+        logger.propagate = False
+        if logger.handlers:
+            logger.handlers = []
+        handler = logging.StreamHandler()
+        handler.setLevel(self.log_level)
+        formatter = logging.Formatter(
+            fmt=self.settings.get("LOG_FORMAT"), datefmt=self.settings.get("LOG_DATEFORMAT")
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        return logger
+
 
 class DbExtension:
     def __init__(self, crawler: Crawler):
+        bot_name = crawler.settings.get('BOT_NAME', 'scrapy_project')
+        self.logger = logging.getLogger(bot_name)
         self.connection = sqlite3.connect(crawler.settings.get("SQLITE_FILE"), check_same_thread=False)
         crawler.db_connection = self.connection
         cursor = self.connection.cursor()
@@ -34,10 +69,9 @@ class DbExtension:
             ''')
             self.connection.commit()
         except sqlite3.Error as e:
-            print(f"Error creating database {e}")
+            self.logger.critical(f"Error creating database {e}")
         finally:
             cursor.close()
-
 
     @classmethod
     def from_crawler(cls, crawler):

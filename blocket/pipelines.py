@@ -2,9 +2,11 @@
 #
 # Don't forget to add your pipeline to the ITEM_PIPELINES setting
 # See: https://docs.scrapy.org/en/latest/topics/item-pipeline.html
+import logging
 import re
 from sqlite3 import IntegrityError
 
+import scrapy
 # useful for handling different item types with a single interface
 from itemadapter import ItemAdapter
 from dateparser import parse
@@ -19,12 +21,6 @@ from unicodedata import category
 
 
 class JobPipeline:
-
-    # def open_spider(self, spider):
-    #     pass
-    #
-    # def close_spider(self, spider):
-    #    pass
 
     def process_item(self, item, spider):
         item['url'] = item['url'].strip() if item.get('url') else None
@@ -66,15 +62,12 @@ class JobPipeline:
         text = text.lower()
         email_pattern = r"[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
         emails = re.findall(email_pattern, text)
-        #phone_pattern = r"\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}"
         phone_pattern = r"\+?\d{1,4}[-.\s]?\(?\d{1,3}\)?[-.\s]?(?:\d[-.\s]?){7,13}\d"
-
         phones = re.findall(phone_pattern, text)
         output = []
         if emails:
             output.append(f"Email: {', '.join(emails)}")
         if phones:
-
             output.append(f"Phones: {', '.join(phones)}")
 
         return "\n".join(output) if output else None
@@ -85,6 +78,8 @@ class DatabasePipeline:
         self.connection = crawler.db_connection
         self.settings = crawler.settings
         self.item_counter = 0
+
+        self.batch_size = 50
         self.cursor = self.connection.cursor()
 
     @classmethod
@@ -110,15 +105,12 @@ class DatabasePipeline:
             self.connection.commit()
 
         except IntegrityError:
-            # spider.logger.info(f"URL {item['url']} already exists in the database. Skipping.")
-            raise DropItem(f"Duplicate URL found: {item['url']}")
+            spider.logger.info(f"Drop item {item['url']}. URL already exists in the database.")
+            raise DropItem()
         else:
             self.item_counter += 1
-            if self.item_counter % 20 == 0:
-                time_str = datetime.now().time().strftime("%H:%M:%S")
-                print("~" * 50)
-                print(f"{time_str} - Added {self.item_counter} jobs")
-                print("~" * 50)
+            if self.item_counter % self.batch_size == 0:
+                spider.logger.info(f"~~~Added {self.item_counter} jobs")
         return item
 
     def close_spider(self, spider):
@@ -131,11 +123,14 @@ class ExcelSavePipeline:
     def __init__(self):
         self.items = []
         self.batch_size = 50
-        self.excel_file = 'job_batch_data.xlsx'
+        self.excel_file = None
         self.sheet_name = 'Sheet1'
         self.start_row = 0
         self.workbook = None
 
+
+    def open_spider(self, spider: scrapy.Spider):
+        self.excel_file = spider.settings.get("EXCEL_FILE_INCREMENTAL")
         self._init_workbook()
 
     def _init_workbook(self):
@@ -179,11 +174,17 @@ class ExcelSavePipeline:
 
 class ExcelFinalExportPipeline:
     """
-    Save the all data
+    Save the all data to xlsx
     """
 
-    @staticmethod
-    def close_spider(spider):
+    def __init__(self):
+        self.excel_file = None
+
+    def open_spider(self, spider: scrapy.Spider):
+        self.excel_file = spider.settings.get("EXCEL_FILE_FROM_DB")
+
+    def close_spider(self, spider):
+        spider.logger.info(f"Start saving all records to {self.excel_file}")
         connection = spider.crawler.db_connection
         query = '''
         SELECT j.*, 
@@ -194,4 +195,7 @@ class ExcelFinalExportPipeline:
         ORDER BY j.published_date DESC;
         '''
         df = pd.read_sql_query(query, connection)
-        df.to_excel('jobs_data_with_company_job_count.xlsx', index=False)
+        record_count = df.shape[0]
+        spider.logger.info(f"Total record count in DB {record_count}")
+        df.to_excel(self.excel_file, index=False)
+        spider.logger.info(f"All records are saved to {self.excel_file}")
