@@ -30,7 +30,7 @@ class BlocketSpider(scrapy.Spider):
         super()._set_crawler(crawler)
         bot_name = self.settings.get('BOT_NAME', 'scrapy_project')
         self._logger = logging.getLogger(bot_name)
-        self.mode = crawler.settings.get("MODE", 'continue')
+        self.refresh_mode = crawler.settings.getbool("REFRESH_MODE", False)
         self.logger.info("Start spider")
 
     @property
@@ -55,8 +55,6 @@ class BlocketSpider(scrapy.Spider):
                 yield scrapy.Request(url=page[0], callback=self.parse_category_page, dont_filter=True)
             elif page[1] == PageType.JOB_PAGE.value:
                 yield scrapy.Request(url=page[0], callback=self.parse_job_page, dont_filter=True)
-
-
 
 
     def _get_unprocessed_pages(self):
@@ -138,17 +136,17 @@ class BlocketSpider(scrapy.Spider):
             "meta": {"page_type": PageType.CATEGORY_PAGE.value},
         }
 
-        # In update mode, the publication date of the last work on the page is checked and
-        # while this date is greater than now() - refresh_days,
-        # the next category page is not checked by the duplicate filter
-        if self.mode == 'update':
+        # In refresh mode, the maximum age of the last job on the page (in days) is compared with
+        # REFRESH_DAYS to skip the duplicate filter for the next category page
+
+        if self.refresh_mode:
             days = self.settings.getint("REFRESH_DAYS", 0)
             target_date = datetime.now() - timedelta(days=days)
             published_dates = response.css("p.sc-f047e250-1.gRACBc::text").getall()
             last_date_sw = published_dates[-1] if published_dates else None
             last_date = dateparser.parse(f"{last_date_sw} {datetime.now().year}", languages=['sv'])
             if last_date and last_date >= target_date:
-                request_kwargs['dont_filter'] = True  # disable dupe filter for this request and parse next page again
+                request_kwargs['dont_filter'] = True  # disable duplicate filter for this request and parse next page again
 
         self.logger.info(f"Category {category} page {current_page} / {page_count} processed")
 

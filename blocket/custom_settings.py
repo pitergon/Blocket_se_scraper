@@ -8,8 +8,12 @@ EXCEL_FILE_FROM_DB = "job_data_from_db.xlsx"
 SAVE_JOB_DESCRIPTION = True
 
 
-# update or continue
-MODE="update"
+# REFRESH_MODE - duplicate filter bypass mode:
+# True — pages meeting the refresh_days condition are processed even if they were previously handled.
+# False — all pages are checked for duplicates.
+REFRESH_MODE = True
+# REFRESH_DAYS - maximum number of days between today’s date and the latest job posting on the page for the next page in this category
+# to bypass duplicate filtering
 REFRESH_DAYS = 14
 MAX_CATEGORY_PAGE_NUMBER = 1
 
