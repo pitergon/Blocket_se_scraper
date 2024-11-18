@@ -38,9 +38,10 @@ class DbExtension:
     def __init__(self, crawler: Crawler):
         bot_name = crawler.settings.get('BOT_NAME', 'scrapy_project')
         self.logger = logging.getLogger(bot_name)
-        self.connection = sqlite3.connect(crawler.settings.get("SQLITE_FILE"), check_same_thread=False)
+        self.connection: sqlite3.Connection = sqlite3.connect(crawler.settings.get("SQLITE_FILE"),
+                                                              check_same_thread=False)
         crawler.db_connection = self.connection
-        cursor = self.connection.cursor()
+        cursor: sqlite3.Cursor = self.connection.cursor()
         try:
             cursor.executescript('''
                 CREATE TABLE IF NOT EXISTS jobs (
@@ -63,10 +64,12 @@ class DbExtension:
                     fingerprint BLOB PRIMARY KEY,
                     url TEXT,
                     parent_url TEXT,
+                    page_type TEXT,
                     status TEXT,
                     last_processed_date TEXT                   
                 );
             ''')
+
             self.connection.commit()
         except sqlite3.Error as e:
             self.logger.critical(f"Error creating database {e}")

@@ -1,14 +1,17 @@
 # custom_settings.py
 
-SQLITE_FILE = "scrapy_data.db"
+SQLITE_FILE = "blocket.db"
 JOBDIR = "spider_data"
 EXCEL_FILE_INCREMENTAL = "job_data.xlsx"
 EXCEL_FILE_FROM_DB = "job_data_from_db.xlsx"
 
-JOB_PAGE_PARSING_ENABLED = True
 SAVE_JOB_DESCRIPTION = True
-MAX_CATEGORY_PAGE_NUMBER = 3
+
+
+# update or continue
+MODE="update"
 REFRESH_DAYS = 14
+MAX_CATEGORY_PAGE_NUMBER = 1
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
@@ -30,7 +33,7 @@ SPIDER_MIDDLEWARES = {
 
 
 DUPEFILTER_CLASS = 'blocket.dupefilters.JobUrlDupeFilter'
-
+DEPTH_LIMIT = 502
 
 HTTPERROR_ALLOW_ALL = False
 
@@ -47,6 +50,7 @@ REACTOR_THREADPOOL_MAXSIZE = 20
 
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 DOWNLOAD_FAIL_ON_DATALOSS = False
+#LOG_LEVEL = 'DEBUG'
 LOG_LEVEL = 'WARNING'
 CUSTOM_LOG_LEVEL = "INFO"
 #DUPEFILTER_DEBUG = True

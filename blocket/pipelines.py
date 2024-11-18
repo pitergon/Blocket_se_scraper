@@ -186,15 +186,25 @@ class ExcelFinalExportPipeline:
     def close_spider(self, spider):
         spider.logger.info(f"Start saving all records to {self.excel_file}")
         connection = spider.crawler.db_connection
+        # Создание индекса, если нужно
+        cursor = connection.cursor()
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_company ON jobs(company);')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_published_date ON jobs(published_date DESC);')
+        connection.commit()
         query = '''
-        SELECT j.*, 
-            (SELECT COUNT(*) 
-            FROM jobs 
-            WHERE company = j.company) AS db_company_jobs 
-        FROM jobs j 
+        SELECT j.*, c.company_jobs_in_db 
+        FROM jobs j
+        LEFT JOIN (
+            SELECT company, COUNT(*) AS company_jobs_in_db
+            FROM jobs
+            GROUP BY company
+        ) c ON j.company = c.company
         ORDER BY j.published_date DESC;
         '''
         df = pd.read_sql_query(query, connection)
+        cursor.execute('DROP INDEX IF EXISTS idx_company;')
+        cursor.execute('DROP INDEX IF EXISTS idx_published_date;')
+        connection.commit()
         record_count = df.shape[0]
         spider.logger.info(f"Total record count in DB {record_count}")
         df.to_excel(self.excel_file, index=False)

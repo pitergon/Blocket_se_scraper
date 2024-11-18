@@ -2,14 +2,15 @@
 #
 # See documentation in:
 # https://docs.scrapy.org/en/latest/topics/spider-middleware.html
+import logging
+from datetime import datetime
+from typing import Optional
 import sqlite3
-import threading
 import scrapy
+from pandas.io.sas.sas_constants import page_type_mask
 from scrapy.utils.request import fingerprint
 from scrapy import signals
-from datetime import datetime
-from logging import Logger
-from typing import Optional
+from twisted.internet.defer import DeferredLock
 
 
 class BlocketSpiderMiddleware:
@@ -17,10 +18,11 @@ class BlocketSpiderMiddleware:
     # scrapy acts as if the spider middleware does not modify the
     # passed objects.
     def __init__(self, crawler):
-        self.lock = threading.Lock()
+        bot_name = crawler.settings.get('BOT_NAME', 'scrapy_project')
+        self.logger = logging.getLogger(bot_name)
+        self.lock = DeferredLock()
         self.children_request_counts = {}  # dict
         self.connection: Optional[sqlite3.Connection] = crawler.db_connection
-        # self.logger: Optional[Logger] = None
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -41,7 +43,8 @@ class BlocketSpiderMiddleware:
         url = response.url
         fp = fingerprint(response.request)
         parent_url = response.meta.get('parent_url')
-        self._mark_url_in_progress(fp, url, parent_url)
+        page_type = response.meta.get('page_type')
+        self._mark_url_in_progress(fp, url, parent_url, page_type)
         return None
 
     def process_spider_output(self, response, result, spider):
@@ -58,54 +61,87 @@ class BlocketSpiderMiddleware:
         parent_url = response.meta.get('parent_url')
         fp = fingerprint(response.request)
         url = response.url
-
         # Init counter for child requests
         pending_requests = []
+        item_count = 0
         for item in result:
             if isinstance(item, scrapy.Request):
                 # Set Metadata parent_url и fingerprint for all child request
-                item.meta["parent_fp"] = fp
-                item.meta["parent_url"] = url
-                # Append request to pending list for delayed yield
-                pending_requests.append(item)
+                # Preventing looping by visiting parent page
+                if item.url != parent_url:
+                    item.meta["parent_fp"] = fp
+                    item.meta["parent_url"] = url
+                    # Append request to pending list for delayed yield
+                    pending_requests.append(item)
             else:
+                item_count += 1
                 yield item
-        # Create counter for children requests
-        if pending_requests:
-            self.children_request_counts[fp] = len(pending_requests)
-        else:
-            self._mark_url_processed(fp, url)
 
+        if pending_requests:
+            self._update_counter_with_lock(fp, url, len(pending_requests))
+        elif item_count:
+            self._mark_url_processed(fp, url)
+        else:
+            self.logger.warning(f"~~~Page {url} did not generate any queries or items. May be you are blocked")
         # Yield all pending requests after iterating over result
         for request in pending_requests:
             yield request
 
         # Decrement children count with a locker
         if parent_fp:
-            self._decrement_count(parent_fp, parent_url)
+            self._update_counter_with_lock(parent_fp, parent_url, -1)
 
-    def _decrement_count(self, parent_fp: bytes, parent_url: str):
-        """Decrement the child request counter for specified parent_url"""
+    def _update_counter_with_lock(self, fp, url, delta):
+        """
+        Update counter of children requests with deferred lock
+        """
+        d = self.lock.acquire()
+        d.addCallback(self._update_count, fp, url, delta)
+        d.addErrback(self._handle_error)
+
+    def _handle_error(self, failure):
+        self.logger.error(f"Error accessing variable children_request_counts {failure}")
+
+    def _update_count(self, result, fp, url, delta):
+        """
+        Should be called only with external lock for self.children_request_counts.
+        Updates counter and set parent request processed if counter equals 0
+        """
         processed = False
-        if parent_fp in self.children_request_counts:
-            with self.lock:
-                self.children_request_counts[parent_fp] -= 1
-                if self.children_request_counts[parent_fp] == 0:
-                    del self.children_request_counts[parent_fp]
-                    processed = True
-            if processed:
-                self._mark_url_processed(parent_fp, parent_url)
+        try:
+            self.children_request_counts[fp] = self.children_request_counts.get(fp, 0) + delta
+            if self.children_request_counts[fp] == 0:
+                del self.children_request_counts[fp]
+                processed = True
+        except Exception as e:
+            self.logger.error(f"Error accessing variable children_request_counts {e}")
+        finally:
+            self.lock.release()
+        if processed:
+            self._mark_url_processed(fp, url)
 
-    def _mark_url_in_progress(self, fp: bytes, url: str, parent_url: str = None):
+    # def _decrement_count(self, parent_fp: bytes, parent_url: str):
+    #     """Decrement the child request counter for specified parent_url"""
+    #     processed = False
+    #     if parent_fp in self.children_request_counts:
+    #         with self.lock:
+    #             self.children_request_counts[parent_fp] -= 1
+    #             if self.children_request_counts[parent_fp] == 0:
+    #                 del self.children_request_counts[parent_fp]
+    #                 processed = True
+    #         if processed:
+    #             self._mark_url_processed(parent_fp, parent_url)
+
+    def _mark_url_in_progress(self, fp: bytes, url: str, parent_url: str = None, page_type: str = None):
         """Marks the request with fingerprint as "in progress" in DB"""
         cursor = self.connection.cursor()
         try:
             cursor.execute('''
-            INSERT INTO visited_urls (fingerprint, url, parent_url, status) 
-            VALUES (?, ?, ?, "in_progress") 
+            INSERT INTO visited_urls (fingerprint, url, parent_url, page_type, status) 
+            VALUES (?, ?, ?, ?, "in_progress") 
             ON CONFLICT(fingerprint) DO UPDATE SET status="in_progress"
             ''',
-                           (fp, url, parent_url))
+                           (fp, url, parent_url, page_type))
             self.connection.commit()
         except sqlite3.Error as e:
             self.logger.error(f"Error marking URL as in progress: {e}")
@@ -151,9 +187,10 @@ class BlocketSpiderMiddleware:
         parent_fp = request.meta.get('parent_fp')
         parent_url = request.meta.get('parent_url')
         if parent_fp in self.children_request_counts:
-            with self.lock:
-                self.children_request_counts[parent_fp] -= 1
-                if self.children_request_counts[parent_fp] == 0:
-                    self._mark_url_processed(parent_fp, parent_url)
+            self._update_counter_with_lock(parent_fp, parent_url, -1)
+            # with self.lock:
+            #     self.children_request_counts[parent_fp] -= 1
+            #     if self.children_request_counts[parent_fp] == 0:
+            #         self._mark_url_processed(parent_fp, parent_url)
 
 
