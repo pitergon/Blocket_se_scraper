@@ -1,5 +1,5 @@
 Scrapper for site blocket.se
-
+Use python > 3.10
 
 
 run 
