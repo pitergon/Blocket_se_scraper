@@ -37,3 +37,6 @@ __pycache__/
 .tmp/
 
 spider_data/*
+job_data_from_db.xlsx
+job_data.xlsx
+blocket.db
