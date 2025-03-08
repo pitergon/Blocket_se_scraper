@@ -1,0 +1,4 @@
+projects:
+  default: 12345
+requirements:
+  file: requirements.txt
